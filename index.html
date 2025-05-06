@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Song Search</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div class="container mx-auto p-4 max-w-4xl">
+        <h1 class="text-3xl font-bold text-center mb-6 text-gray-800">Song Search</h1>
+        <div class="flex mb-4">
+            <input id="queryInput" type="text" placeholder="Enter song name, artist, or lyrics..." 
+                   class="flex-grow p-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <button onclick="searchSongs()" 
+                    class="bg-blue-500 text-white p-2 rounded-r-md hover:bg-blue-600 transition">
+                Search
+            </button>
+        </div>
+        <div id="results" class="space-y-4"></div>
+    </div>
+
+    <script>
+        async function searchSongs() {
+            const query = document.getElementById('queryInput').value.trim();
+            if (!query) {
+                alert('Please enter a search query');
+                return;
+            }
+
+            try {
+                const response = await fetch('/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const results = await response.json();
+                displayResults(results, query);
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('results').innerHTML = `
+                    <p class="text-red-500 text-center">Error: ${error.message}</p>
+                `;
+            }
+        }
+
+        function displayResults(results, query) {
+            const resultsDiv = document.getElementById('results');
+            if (results.length === 0) {
+                resultsDiv.innerHTML = '<p class="text-gray-500 text-center">No results found.</p>';
+                return;
+            }
+
+            resultsDiv.innerHTML = results.map(result => `
+                <div class="bg-white p-4 rounded-md shadow-md flex items-center space-x-4">
+                    <img src="${result.image_url || 'https://via.placeholder.com/64'}" alt="Song cover" 
+                         class="w-16 h-16 rounded-md object-cover">
+                    <div class="flex-grow">
+                        <h2 class="text-lg font-semibold">${result.song_name}</h2>
+                        <p class="text-gray-600">Artist: ${result.artist_name || 'Unknown'}</p>
+                        <p class="text-gray-500">Match Score: ${result.match_score}</p>
+                        <p class="text-gray-500">Lyrics Available: ${result.has_lyrics ? 'Yes' : 'No'}</p>
+                        <a href="${result.external_urls || '#'}" target="_blank" 
+                           class="text-blue-500 hover:underline">Listen</a>
+                        <button onclick="submitFeedback('${query.replace(/'/g, "\\'")}', '${result.track_id}', true)" 
+                                class="ml-4 text-green-500 hover:underline">This is correct</button>
+                        <button onclick="submitFeedback('${query.replace(/'/g, "\\'")}', '${result.track_id}', false)" 
+                                class="ml-4 text-red-500 hover:underline">This is not the song I want</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function submitFeedback(query, track_id, is_correct) {
+            try {
+                const response = await fetch('/feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query, track_id: track_id, is_correct: is_correct })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to submit feedback');
+                }
+
+                alert('Feedback submitted successfully!');
+            } catch (error) {
+                console.error('Feedback error:', error);
+                alert('Error submitting feedback: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
