@@ -1,3 +1,6 @@
 *.mp3
 env
 .env
+*.json
+index.pkl
+songs.db
