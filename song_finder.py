@@ -1445,23 +1445,103 @@ def index():
 
 @app.route('/search', methods=['POST'])
 def search():
-    """Handle search requests"""
+    """Handle search requests with optional field prefix"""
     try:
         data = request.json
         if not data:
             return jsonify({"error": "Invalid JSON body"}), 400
-        
-        query = data.get('query', data.get('lyrics', ''))
+
+        query = data.get('query', '').strip()
         if not query:
-            return jsonify({"error": "No query or lyrics provided in JSON body"}), 400
-        
-        results = search_songs(query)
-        return jsonify(results)
-    except ValueError:
-        return jsonify({"error": "Invalid JSON format"}), 400
+            return jsonify({"error": "No query provided"}), 400
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Xác định loại truy vấn
+        lower_query = query.lower()
+        results = []
+
+        if lower_query.startswith("artist:"):
+            keyword = query[7:].strip().lower()
+            cursor.execute("""
+                SELECT t.id, t.song_name, group_concat(a.name), l.lyrics, t.image_url, t.external_urls
+                FROM tracks t
+                LEFT JOIN lyrics l ON t.id = l.track_id
+                JOIN json_each(t.artists) AS je ON 1
+                JOIN artists a ON a.id = je.value
+                WHERE lower(a.name) LIKE ?
+                GROUP BY t.id
+            """, ('%' + keyword + '%',))
+            results = cursor.fetchall()
+
+        elif lower_query.startswith("name:"):
+            keyword = query[5:].strip().lower()
+            cursor.execute("""
+                SELECT t.id, t.song_name, group_concat(a.name), l.lyrics, t.image_url, t.external_urls
+                FROM tracks t
+                LEFT JOIN lyrics l ON t.id = l.track_id
+                JOIN json_each(t.artists) AS je ON 1
+                JOIN artists a ON a.id = je.value
+                WHERE lower(t.song_name) LIKE ?
+                GROUP BY t.id
+            """, ('%' + keyword + '%',))
+            results = cursor.fetchall()
+
+        elif lower_query.startswith("lyrics:"):
+            keyword = query[7:].strip().lower()
+            cursor.execute("""
+                SELECT t.id, t.song_name, group_concat(a.name), l.lyrics, t.image_url, t.external_urls
+                FROM tracks t
+                LEFT JOIN lyrics l ON t.id = l.track_id
+                JOIN json_each(t.artists) AS je ON 1
+                JOIN artists a ON a.id = je.value
+                WHERE lower(l.lyrics) LIKE ?
+                GROUP BY t.id
+            """, ('%' + keyword + '%',))
+            results = cursor.fetchall()
+
+        else:
+            # Truy vấn tổng hợp nếu không có tiền tố
+            keyword = query.lower()
+            cursor.execute("""
+                SELECT t.id, t.song_name, group_concat(a.name), l.lyrics, t.image_url, t.external_urls
+                FROM tracks t
+                LEFT JOIN lyrics l ON t.id = l.track_id
+                JOIN json_each(t.artists) AS je ON 1
+                JOIN artists a ON a.id = je.value
+                WHERE lower(t.song_name) LIKE ?
+                   OR lower(l.lyrics) LIKE ?
+                   OR lower(a.name) LIKE ?
+                GROUP BY t.id
+            """, (
+                '%' + keyword + '%',
+                '%' + keyword + '%',
+                '%' + keyword + '%',
+            ))
+            results = cursor.fetchall()
+
+        conn.close()
+
+        # Convert results
+        formatted = [
+            {
+                "track_id": row[0],
+                "song_name": row[1],
+                "artist_name": row[2],
+                "has_lyrics": bool(row[3]),
+                "image_url": row[4],
+                "external_urls": row[5],
+                "match_score": 100.0
+            }
+            for row in results
+        ]
+        return jsonify(formatted)
+
     except Exception as e:
         print(f"Search error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
+
 
 @app.route('/add_song', methods=['POST'])
 def add_song():
